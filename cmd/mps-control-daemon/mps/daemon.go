@@ -50,10 +50,10 @@ type Daemon struct {
 }
 
 // NewDaemon creates an MPS daemon instance.
-func NewDaemon(rm rm.ResourceManager) *Daemon {
+func NewDaemon(rm rm.ResourceManager, root string) *Daemon {
 	return &Daemon{
 		rm:   rm,
-		root: "/mps",
+		root: root,
 	}
 }
 
@@ -77,8 +77,8 @@ func (e envvars) toSlice() []string {
 // TODO: Set CUDA_VISIBLE_DEVICES to include only the devices for this resource type.
 func (d *Daemon) Envvars() envvars {
 	return map[string]string{
-		"CUDA_MPS_PIPE_DIRECTORY": d.pipeDir(),
-		"CUDA_MPS_LOG_DIRECTORY":  d.logDir(),
+		"CUDA_MPS_PIPE_DIRECTORY": d.PipeDir(),
+		"CUDA_MPS_LOG_DIRECTORY":  d.LogDir(),
 	}
 }
 
@@ -91,12 +91,12 @@ func (d *Daemon) Start() error {
 
 	klog.InfoS("Staring MPS daemon", "resource", d.rm.Resource())
 
-	pipeDir := d.pipeDir()
+	pipeDir := d.PipeDir()
 	if err := os.MkdirAll(filepath.Join("/driver-root", pipeDir), 0755); err != nil {
 		return fmt.Errorf("error creating directory %v: %w", pipeDir, err)
 	}
 
-	logDir := d.logDir()
+	logDir := d.LogDir()
 	if err := os.MkdirAll(filepath.Join("/driver-root", logDir), 0755); err != nil {
 		return fmt.Errorf("error creating directory %v: %w", logDir, err)
 	}
@@ -152,11 +152,11 @@ func (d *Daemon) resourceRoot() string {
 	return filepath.Join(d.root, string(d.rm.Resource()))
 }
 
-func (d *Daemon) pipeDir() string {
+func (d *Daemon) PipeDir() string {
 	return filepath.Join(d.resourceRoot(), "pipe")
 }
 
-func (d *Daemon) logDir() string {
+func (d *Daemon) LogDir() string {
 	return filepath.Join(d.resourceRoot(), "log")
 }
 

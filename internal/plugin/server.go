@@ -151,7 +151,9 @@ func (plugin *NvidiaDevicePlugin) waitForMPSDaemon() error {
 	}
 	// TODO: Check the started file here.
 	// TODO: Have some retry strategy here.
-	if err := mps.NewDaemon(plugin.rm).AssertHealthy(); err != nil {
+	// TODO: /mps here is represents the path relative to the /driver-root.
+	mpsDaemon := mps.NewDaemon(plugin.rm, "/mps")
+	if err := mpsDaemon.AssertHealthy(); err != nil {
 		return fmt.Errorf("error checking MPS daemon health: %w", err)
 	}
 	return nil
@@ -331,6 +333,9 @@ func (plugin *NvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*plu
 	if err != nil {
 		return nil, fmt.Errorf("failed to get allocate response for CDI: %v", err)
 	}
+	if err := plugin.updateContainerAllocatResponseForMPS(&response, deviceIDs); err != nil {
+		return nil, fmt.Errorf("failed to update allocate response for MPS: %v", err)
+	}
 
 	if plugin.deviceListStrategies.Includes(spec.DeviceListStrategyEnvvar) {
 		response.Envs = plugin.apiEnvs(plugin.deviceListEnvvar, deviceIDs)
@@ -348,36 +353,47 @@ func (plugin *NvidiaDevicePlugin) getAllocateResponse(requestIds []string) (*plu
 	if *plugin.config.Flags.MOFEDEnabled {
 		response.Envs["NVIDIA_MOFED"] = "enabled"
 	}
-	// TODO: We should generate a CDI specification for MPS
-	if plugin.config.Sharing.SharingStrategy() == spec.SharingStrategyMPS {
-		if response.Envs == nil {
-			response.Envs = make(map[string]string)
-		}
-		pipeDir := filepath.Join("/mps", string(plugin.rm.Resource()), "pipe")
-		response.Envs["CUDA_MPS_PIPE_DIRECTORY"] = pipeDir
-		response.Mounts = append(response.Mounts,
-			&pluginapi.Mount{
-				ContainerPath: pipeDir,
-				HostPath:      filepath.Join("/var/lib/kubelet/device-plugins", pipeDir),
-			},
-		)
-		logDir := filepath.Join("/mps", string(plugin.rm.Resource()), "log")
-		response.Envs["CUDA_MPS_LOG_DIRECTORY"] = logDir
-		response.Mounts = append(response.Mounts,
-			&pluginapi.Mount{
-				ContainerPath: logDir,
-				HostPath:      filepath.Join("/var/lib/kubelet/device-plugins", logDir),
-			},
-		)
-		response.Mounts = append(response.Mounts,
-			&pluginapi.Mount{
-				ContainerPath: "/dev/shm",
-				HostPath:      "/var/lib/kubelet/device-plugins/mps/shm",
-			},
-		)
+	return &response, nil
+}
+
+func (plugin NvidiaDevicePlugin) updateContainerAllocatResponseForMPS(response *pluginapi.ContainerAllocateResponse, deviceIDs []string) error {
+	if plugin.config.Sharing.SharingStrategy() != spec.SharingStrategyMPS {
+		return nil
 	}
 
-	return &response, nil
+	// TODO: We should check that the deviceIDs are shared using MPS.
+
+	// TODO: We should generate a CDI specification for MPS
+
+	// TODO: We use the Daemon here just to construct the pipe and log dirs for the specified resource.
+	containerMpsDaemon := mps.NewDaemon(plugin.rm, "/mps")
+
+	containerPipeDir := containerMpsDaemon.PipeDir()
+	containerLogDir := containerMpsDaemon.LogDir()
+
+	if response.Envs == nil {
+		response.Envs = make(map[string]string)
+	}
+	response.Envs["CUDA_MPS_PIPE_DIRECTORY"] = containerPipeDir
+	response.Envs["CUDA_MPS_LOG_DIRECTORY"] = containerLogDir
+
+	// TODO: We use the Daemon here just to construct the pipe and log dirs for the specified resource on the host.
+	hostMpsDaemon := mps.NewDaemon(plugin.rm, *plugin.config.Flags.MpsRoot)
+	response.Mounts = append(response.Mounts,
+		&pluginapi.Mount{
+			ContainerPath: containerPipeDir,
+			HostPath:      hostMpsDaemon.PipeDir(),
+		},
+		&pluginapi.Mount{
+			ContainerPath: containerLogDir,
+			HostPath:      hostMpsDaemon.LogDir(),
+		},
+		&pluginapi.Mount{
+			ContainerPath: "/dev/shm",
+			HostPath:      filepath.Join(*plugin.config.Flags.MpsRoot, "shm"),
+		},
+	)
+	return nil
 }
 
 // getAllocateResponseForCDI returns the allocate response for the specified device IDs.
