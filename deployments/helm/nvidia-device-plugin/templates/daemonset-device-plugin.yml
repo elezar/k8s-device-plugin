@@ -183,17 +183,18 @@ spec:
         volumeMounts:
           - name: device-plugin
             mountPath: /var/lib/kubelet/device-plugins
-        {{- if typeIs "string" .Values.nvidiaDriverRoot }}
-          # We always mount the driver root at /driver-root in the container.
-          # This is required for CDI detection to work correctly.
-          - name: driver-root
-            mountPath: /driver-root
-        {{- end }}
           # The MPS /dev/shm is needed to allow for MPS daemon health-checking.
           - name: mps-shm
             mountPath: /driver-root/dev/shm
           - name: mps-root
             mountPath: /driver-root/mps
+        {{- if typeIs "string" .Values.nvidiaDriverRoot }}
+          # We always mount the driver root at /driver-root in the container.
+          # This is required for CDI detection to work correctly.
+          - name: driver-root
+            mountPath: /driver-root
+            readOnly: true
+        {{- end }}
           - name: cdi-root
             mountPath: /var/run/cdi
         {{- if eq $hasConfigMap "true" }}
