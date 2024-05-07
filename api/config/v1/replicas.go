@@ -20,9 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 
-	"github.com/google/uuid"
+	"github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
 )
 
 // ReplicatedResources defines generic options for replicating devices.
@@ -89,76 +88,7 @@ type ReplicatedResource struct {
 type ReplicatedDevices struct {
 	All   bool
 	Count int
-	List  []ReplicatedDeviceRef
-}
-
-// ReplicatedDeviceRef can either be a full GPU index, a MIG index, or a UUID (full GPU or MIG)
-type ReplicatedDeviceRef string
-
-// IsGPUIndex checks if a ReplicatedDeviceRef is a full GPU index
-func (d ReplicatedDeviceRef) IsGPUIndex() bool {
-	if _, err := strconv.ParseUint(string(d), 10, 0); err != nil {
-		return false
-	}
-	return true
-}
-
-// IsMigIndex checks if a ReplicatedDeviceRef is a MIG index
-func (d ReplicatedDeviceRef) IsMigIndex() bool {
-	split := strings.SplitN(string(d), ":", 2)
-	if len(split) != 2 {
-		return false
-	}
-	for _, s := range split {
-		if _, err := strconv.ParseUint(s, 10, 0); err != nil {
-			return false
-		}
-	}
-	return true
-}
-
-// IsUUID checks if a ReplicatedDeviceRef is a UUID
-func (d ReplicatedDeviceRef) IsUUID() bool {
-	return d.IsGpuUUID() || d.IsMigUUID()
-}
-
-// IsGpuUUID checks if a ReplicatedDeviceRef is a GPU UUID
-// A GPU UUID must be of the form GPU-b1028956-cfa2-0990-bf4a-5da9abb51763
-func (d ReplicatedDeviceRef) IsGpuUUID() bool {
-	if !strings.HasPrefix(string(d), "GPU-") {
-		return false
-	}
-	_, err := uuid.Parse(strings.TrimPrefix(string(d), "GPU-"))
-	return err == nil
-}
-
-// IsMigUUID checks if a ReplicatedDeviceRef is a MIG UUID
-// A MIG UUID can be of one of two forms:
-//   - MIG-b1028956-cfa2-0990-bf4a-5da9abb51763
-//   - MIG-GPU-b1028956-cfa2-0990-bf4a-5da9abb51763/3/0
-func (d ReplicatedDeviceRef) IsMigUUID() bool {
-	if !strings.HasPrefix(string(d), "MIG-") {
-		return false
-	}
-	suffix := strings.TrimPrefix(string(d), "MIG-")
-	_, err := uuid.Parse(suffix)
-	if err == nil {
-		return true
-	}
-	split := strings.SplitN(suffix, "/", 3)
-	if len(split) != 3 {
-		return false
-	}
-	if !ReplicatedDeviceRef(split[0]).IsGpuUUID() {
-		return false
-	}
-	for _, s := range split[1:] {
-		_, err := strconv.ParseUint(s, 10, 0)
-		if err != nil {
-			return false
-		}
-	}
-	return true
+	List  []device.Identifier
 }
 
 // UnmarshalJSON unmarshals raw bytes into a 'ReplicatedResources' struct.
@@ -296,19 +226,19 @@ func (s *ReplicatedDevices) UnmarshalJSON(b []byte) error {
 	err = json.Unmarshal(b, &slice)
 	if err == nil {
 		// For each item in the list check its format and convert it to a string (if necessary)
-		result := make([]ReplicatedDeviceRef, len(slice))
+		result := make([]device.Identifier, len(slice))
 		for i, s := range slice {
 			// Match a uint as a GPU index and convert it to a string
 			var index uint
 			if err = json.Unmarshal(s, &index); err == nil {
-				result[i] = ReplicatedDeviceRef(strconv.Itoa(int(index)))
+				result[i] = device.Identifier(strconv.Itoa(int(index)))
 				continue
 			}
 			// Match strings as valid entries if they are GPU indices, MIG indices, or UUIDs
 			var item string
 			if err = json.Unmarshal(s, &item); err == nil {
-				rd := ReplicatedDeviceRef(item)
-				if rd.IsGPUIndex() || rd.IsMigIndex() || rd.IsUUID() {
+				rd := device.Identifier(item)
+				if rd.IsGpuIndex() || rd.IsMigIndex() || rd.IsUUID() {
 					result[i] = rd
 					continue
 				}
